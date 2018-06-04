@@ -5,7 +5,9 @@
 #include <boost/asio.hpp>
 
 #include <QDebug>
-
+int i = 0;//number of locks
+int j = 0;//exclusive locks
+int jj = 0;
 namespace hislip{
   using boost::asio::ip::tcp;
 
@@ -233,9 +235,54 @@ namespace hislip{
         case Initialize:  hdl_initialize(hdr); break;
         case AsyncInitialize: hdl_async_initialize(hdr); break;
         case AsyncMaximumMessageSize: hdl_async_maximum_message_size(hdr); break;
-        case AsyncLock: hdl_async_lock(hdr); break;
+        case AsyncLock:
+		{ 
+			if(j == 1)//exclusive lock have locked,stop request lock
+				{
+					if(hdr->control_code == 1)//request a lock
+						{	
+							hdl_async_lock(hdr,0);//result = 1:success,result = 0:failure
+							
+						}
+				}					
+					
+			else
+				{
+					if(hdr->control_code == 1)//request a lock
+						{	
+							hdl_async_lock(hdr,1);//result = 1:success,result = 0:failure
+							i++;
+									
+						}
+					if (hdr->control_code == 0)//release a lock
+						{//result = 1:exclusive lock was granted,result = 2:shared lock was granted
+							int result;
+							result = 1;
+							hdl_async_lock(hdr,result);
+								
+							if(result == 1)
+								{
+									j = 1;//exclusive lock was granted
+									jj = 1;
+								}
+							if(result == 2)//shared lock was granted
+
+								j = 2;//exclusive lock was not granted
+
+							if(result == 3)//error
+								{
+									j = 3;
+									init_header(FatalError);
+								}	
+						}	
+				}	
+			
+			break;	
+				
+		}			
+						
         case DataEnd: hdl_data_end(hdr); break;
-        case AsyncLockInfo: hdl_async_lock(hdr); break;
+        case AsyncLockInfo:hdl_async_lock_info(hdr); break;
         
         default:{
           qWarning("unknow message type %d", hdr->type);
@@ -308,18 +355,32 @@ namespace hislip{
       send_resp();
     }
 
-    void hdl_async_lock(msg_header* hdr){
-      uint8_t cc = ntohs(hdr->control_code);
+    void hdl_async_lock(msg_header* hdr,uint8_t result){
+      //uint8_t cc = ntohs(hdr->control_code);
       uint32_t timeout = ntohl(hdr->parameter.timeout);
 
-      if (cc == 0x01){        
+      //if (cc == 0x01){        
         msg_header* resp = init_header(AsyncLockResponse);
-        resp->control_code = 0x01; /* success */
-      }else{
-        init_header(FatalError);
-      }
+        resp->control_code = result; /* success */
+     // }else{
+     //   init_header(FatalError);
+     // }
       send_resp();
-    };
+    }
+
+
+   void hdl_async_lock_info(msg_header* hdr){
+    
+      uint32_t timeout = ntohl(hdr->parameter.timeout);
+
+             
+        msg_header* resp = init_header(AsyncLockInfoResponse);
+        resp->control_code = jj; /* success */
+	resp->payload_length = i;
+      
+      send_resp();
+    }
+
 
     void hdl_data_end(msg_header* hdr){
 
